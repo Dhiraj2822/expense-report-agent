@@ -45,12 +45,23 @@ from tools import (
     last_month_range,
     get_report_today,
     VALID_CATEGORIES,
+    parse_prompt_instruction,
 )
 from unit3_memory.memory_store import ExpenseMemoryStore
 from unit3_memory.feedback_loop import FeedbackLoopManager
 from .acl_message import ACLMessage, ACLPerformative
 
 logger = logging.getLogger(__name__)
+
+
+def _check_simulate_crash(state: dict[str, Any], node_name: str) -> None:
+    """Helper to simulate server crashes at any stage for viva/demonstration."""
+    target = state.get("simulate_crash_at")
+    if target and target.lower() in node_name.lower():
+        raise RuntimeError(
+            f"SIMULATED SERVER CRASH: Server crashed during '{node_name}' execution! "
+            f"LangGraph checkpoint is safely stored in SQLite."
+        )
 
 
 def append_acl_message(
@@ -112,8 +123,19 @@ def agent_coordinator_init(state: dict[str, Any]) -> dict[str, Any]:
     print(" [AGENT: COORDINATOR] — Decomposing Goal & Initiating Workflow")
     print("=" * 65)
 
+    _check_simulate_crash(state, "coordinator")
+
     instruction = state.get("instruction", "Generate my travel expense report for last month and email it to finance.")
     print(f"   Goal: \"{instruction}\"")
+
+    # Dynamic Intent Extraction
+    default_recip = os.getenv("FINANCE_EMAIL", "finance@yourcompany.com")
+    parsed_intent = parse_prompt_instruction(instruction, default_recipient=default_recip)
+    print(f"   [DYNAMIC PARSER] Target Recipient: {parsed_intent['recipient']}")
+    print(f"   [DYNAMIC PARSER] Date Scope      : {parsed_intent['date_scope']}")
+    if parsed_intent.get("category_filter"):
+        print(f"   [DYNAMIC PARSER] Category Filter : {parsed_intent['category_filter']}")
+
     print("   Workflow Plan: Retriever -> Categorizer -> Auditor -> Reporter")
 
     msg_log = append_acl_message(
@@ -121,11 +143,13 @@ def agent_coordinator_init(state: dict[str, Any]) -> dict[str, Any]:
         performative=ACLPerformative.REQUEST,
         sender="Coordinator",
         receiver="Retriever",
-        content="Retrieve and filter last month's travel expenses from CSV source.",
+        content=f"Retrieve and filter expenses (scope={parsed_intent['date_scope']}, dest={parsed_intent['recipient']}).",
     )
 
     new_state = {
         **state,
+        "parsed_intent": parsed_intent,
+        "recipient": parsed_intent["recipient"],
         "workflow_status": "in_progress",
         "retry_count": state.get("retry_count", 0),
         "message_log": msg_log,
@@ -143,17 +167,36 @@ def agent_retriever(state: dict[str, Any]) -> dict[str, Any]:
     print(" [AGENT: RETRIEVER] — Ingesting CSV and Applying Date Filtering")
     print("=" * 65)
 
+    _check_simulate_crash(state, "retriever")
+
     csv_path = state.get("csv_path", "data/mock_expenses.csv")
     raw = retrieve_expenses(csv_path)
-    valid, date_exceptions = filter_last_month(raw)
 
-    first, last = last_month_range()
-    date_range = (first.strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d"))
+    parsed = state.get("parsed_intent", {})
+    date_scope = parsed.get("date_scope", "last_month")
+
+    if date_scope == "all":
+        valid = [r for r in raw if r.get("date")]
+        date_exceptions = [r for r in raw if not r.get("date")]
+        dates = [r["date"] for r in valid if r.get("date")]
+        date_range = (min(dates), max(dates)) if dates else ("N/A", "N/A")
+        print(f"   => DYNAMIC SCOPE: All available records ({len(valid)} rows, {date_range[0]} to {date_range[1]})")
+    else:
+        valid, date_exceptions = filter_last_month(raw)
+        first, last = last_month_range()
+        date_range = (first.strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d"))
+        print(f"   => SCOPE: Last calendar month ({date_range[0]} to {date_range[1]})")
+
+    cat_filter = parsed.get("category_filter")
+    if cat_filter:
+        print(f"   => DYNAMIC CATEGORY FILTER: Retaining items matching or inferring '{cat_filter}'")
+        # Keep items that either already have that category or need categorization
+        valid = [r for r in valid if (r.get("category") or "").lower() == cat_filter.lower() or not (r.get("category") or "").strip()]
 
     print_trace(
         node_name="RetrieverAgent",
         tool_name="retrieve_expenses + filter_last_month",
-        inputs={"csv_path": csv_path, "report_today": str(get_report_today())},
+        inputs={"csv_path": csv_path, "date_scope": date_scope, "report_today": str(get_report_today())},
         outputs={"raw_rows": len(raw), "in_range_rows": len(valid), "excluded_rows": len(date_exceptions)},
     )
 
@@ -197,10 +240,19 @@ def agent_categorizer(state: dict[str, Any]) -> dict[str, Any]:
     print(" [AGENT: CATEGORIZER] — Long-Term Memory Lookup & In-Context LLM")
     print("=" * 65)
 
+    _check_simulate_crash(state, "categorizer")
+
     memory_store = ExpenseMemoryStore()
     rows = [dict(r) for r in state.get("filtered_expenses", [])]
     llm = state.get("llm")
-    llm_label = state.get("llm_label", "Unknown")
+    if llm is None:
+        try:
+            from llm_config import get_llm
+            llm, llm_label = get_llm()
+        except Exception:
+            llm_label = state.get("llm_label", "Rule-based fallback")
+    else:
+        llm_label = state.get("llm_label", "Unknown")
 
     categorized: list[dict[str, Any]] = []
     amount_exceptions: list[dict[str, Any]] = []
@@ -304,6 +356,8 @@ def agent_auditor(state: dict[str, Any]) -> dict[str, Any]:
     print(" [AGENT: AUDITOR / MONITOR] — Anomaly Detection & Feedback Loop")
     print("=" * 65)
 
+    _check_simulate_crash(state, "auditor")
+
     answers_file = state.get("answers_file")
     fb_manager = FeedbackLoopManager(answers_file=answers_file, max_retries=2)
 
@@ -395,6 +449,8 @@ def agent_reporter(state: dict[str, Any]) -> dict[str, Any]:
     print(" [AGENT: REPORTER] — ReportLab PDF, Approval Gate & EML Archive")
     print("=" * 65)
 
+    _check_simulate_crash(state, "reporter")
+
     # 1. Deterministic Calculation
     totals = calculate_totals(state["categorized_expenses"])
     print(f"   => Recalculated Grand Total: ₹{totals['grand_total']:,.2f}")
@@ -414,7 +470,15 @@ def agent_reporter(state: dict[str, Any]) -> dict[str, Any]:
 
     # 3. Draft Email
     llm = state.get("llm")
-    llm_label = state.get("llm_label", "Unknown")
+    if llm is None:
+        try:
+            from llm_config import get_llm
+            llm, llm_label = get_llm()
+        except Exception:
+            llm_label = state.get("llm_label", "Rule-based fallback")
+    else:
+        llm_label = state.get("llm_label", "Unknown")
+
     email_body = draft_email(
         totals=totals,
         date_range=state["date_range"],
@@ -425,7 +489,11 @@ def agent_reporter(state: dict[str, Any]) -> dict[str, Any]:
         short_term_ctx=state.get("step_log"),
     )
 
-    recipient = os.getenv("FINANCE_EMAIL", "finance@yourcompany.com")
+    recipient = (
+        state.get("parsed_intent", {}).get("recipient")
+        or state.get("recipient")
+        or os.getenv("FINANCE_EMAIL", "finance@yourcompany.com")
+    )
     email_txt = Path(__file__).parent.parent / "drafted_email.txt"
     with open(email_txt, "w", encoding="utf-8") as f:
         f.write(f"To: {recipient}\nAttachment: {pdf_path}\n{'-'*60}\n{email_body}\n")

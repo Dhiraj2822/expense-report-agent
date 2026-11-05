@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+from typing_extensions import TypedDict
 
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph, END
 from llm_config import get_llm
 from unit4_agents.roles import (
@@ -30,6 +33,42 @@ from unit4_agents.roles import (
 )
 
 logger = logging.getLogger("extended_pipeline")
+
+
+class AgentBlackboardState(TypedDict, total=False):
+    """Schema for shared blackboard state across all multi-agent nodes."""
+    instruction: str
+    csv_path: str
+    mode: str
+    llm_label: str
+    auto_approve: bool
+    answers_file: Optional[str]
+    step_log: list[str]
+    message_log: list[dict]
+    retry_count: int
+    simulate_crash_at: Optional[str]
+    parsed_intent: dict
+    recipient: str
+    raw_expenses: list[dict]
+    filtered_expenses: list[dict]
+    categorized_expenses: list[dict]
+    exceptions: list[dict]
+    date_range: Any
+    totals: dict
+    pdf_path: str
+    email_body: str
+    email_result: dict
+    eml_path: str
+    workflow_status: str
+    auditor_warnings: list[str]
+
+
+def get_checkpoint_saver(db_name: str = "checkpoints.db") -> SqliteSaver:
+    """Persistent SQLite checkpointer for crash recovery across all agent nodes."""
+    db_path = Path(__file__).parent.parent / "data" / db_name
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    return SqliteSaver(conn)
 
 
 def agent_confirm_summary(state: dict[str, Any]) -> dict[str, Any]:
@@ -76,9 +115,9 @@ def agent_confirm_summary(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-def build_extended_graph():
-    """Build the role-based multi-agent graph with shared blackboard state."""
-    graph = StateGraph(dict)
+def build_extended_graph(use_checkpointer: bool = True):
+    """Build the role-based multi-agent graph with shared blackboard state and persistent checkpointing."""
+    graph = StateGraph(AgentBlackboardState)
 
     # Register role nodes
     graph.add_node("coordinator", agent_coordinator_init)
@@ -97,16 +136,31 @@ def build_extended_graph():
     graph.add_edge("reporter",    "confirm")
     graph.add_edge("confirm",     END)
 
-    return graph.compile()
+    checkpointer = get_checkpoint_saver() if use_checkpointer else None
+    return graph.compile(checkpointer=checkpointer)
 
 
 def run_extended(args: Any) -> dict[str, Any]:
-    """Runner for extended mode."""
+    """Runner for extended mode with crash-recovery checkpointing."""
     print("  Initialising LLM for Extended Multi-Agent System …")
-    llm, llm_label = get_llm()
+    _, llm_label = get_llm()
     print(f"   Provider resolved: {llm_label}\n")
 
-    app = build_extended_graph()
+    app = build_extended_graph(use_checkpointer=True)
+    thread_id = getattr(args, "thread_id", "session_cli_default")
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # Check if we should resume from a previous checkpoint
+    state_tuple = app.get_state(config)
+    if state_tuple and state_tuple.next:
+        print(f"  [CHECKPOINT RECOVERY] Resuming previous session '{thread_id}' at pending node: {state_tuple.next}")
+        updates = {"simulate_crash_at": None}
+        if getattr(args, "answers", None):
+            updates["answers_file"] = getattr(args, "answers")
+        if getattr(args, "auto_approve", False):
+            updates["auto_approve"] = True
+        app.update_state(config, updates)
+        return app.invoke(None, config=config)
 
     csv_path = str(Path(__file__).parent.parent / "data" / "mock_expenses.csv")
 
@@ -114,14 +168,14 @@ def run_extended(args: Any) -> dict[str, Any]:
         "instruction": getattr(args, "instruction", "Generate my travel expense report for last month and email it to finance."),
         "csv_path": csv_path,
         "mode": "extended",
-        "llm": llm,
         "llm_label": llm_label,
         "auto_approve": getattr(args, "auto_approve", False),
         "answers_file": getattr(args, "answers", None),
         "step_log": [],
         "message_log": [],
         "retry_count": 0,
+        "simulate_crash_at": getattr(args, "simulate_crash_at", None),
     }
 
-    final_state = app.invoke(initial_state)
+    final_state = app.invoke(initial_state, config=config)
     return final_state

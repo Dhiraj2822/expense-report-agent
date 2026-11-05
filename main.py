@@ -439,6 +439,14 @@ def _parse_args():
         "--auto-approve", action="store_true",
         help="Skip human approval gate (Phase 2).",
     )
+    parser.add_argument(
+        "--simulate-crash-at", type=str, default=None,
+        help="Simulate a server crash at a specific node (e.g. 'retriever', 'categorizer', 'auditor', 'reporter')",
+    )
+    parser.add_argument(
+        "--thread-id", type=str, default="session_cli_default",
+        help="Thread ID for SQLite checkpoint state persistence and recovery.",
+    )
     return parser.parse_args()
 
 

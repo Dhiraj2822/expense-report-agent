@@ -41,10 +41,11 @@ class ACLMessage:
     reply_with: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
 
     def to_dict(self) -> dict[str, Any]:
+        perf_str = self.performative.value if hasattr(self.performative, "value") else str(self.performative)
         return {
-            "performative": self.performative,
-            "sender": self.sender,
-            "receiver": self.receiver,
+            "performative": perf_str,
+            "sender": str(self.sender),
+            "receiver": str(self.receiver),
             "content": self.content,
             "ontology": self.ontology,
             "reply_with": self.reply_with,

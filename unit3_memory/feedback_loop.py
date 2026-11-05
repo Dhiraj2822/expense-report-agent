@@ -131,8 +131,8 @@ class FeedbackLoopManager:
                 except (ValueError, TypeError):
                     pass
 
-            # 2. Check interactive user input if in interactive mode and not resolved
-            if provided_amount is None and auto_prompt:
+            # 2. Check interactive user input if in interactive terminal mode and not resolved
+            if provided_amount is None and auto_prompt and sys.stdin.isatty():
                 try:
                     print(f"\n   [FEEDBACK LOOP - ADJUST] Missing data detected:")
                     print(f"   Row: {date_val} | Vendor: {vendor} | Desc: {desc} | Issue: {flag}")
