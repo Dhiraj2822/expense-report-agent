@@ -561,6 +561,36 @@ def generate_pdf_report(
 
     doc.build(story)
     logger.info("   ✔ PDF written to: %s", output_path)
+
+    # ── Tool enhancement: archive report copy and JSON metadata ────────────
+    try:
+        import shutil
+        from datetime import datetime
+        base_dir = Path(output_path).resolve().parent
+        reports_dir = base_dir / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+
+        ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archived_name = f"expense_report_{ts_str}.pdf"
+        archived_pdf = reports_dir / archived_name
+        shutil.copy2(output_path, archived_pdf)
+
+        meta = {
+            "filename": archived_name,
+            "pdf_path": str(archived_pdf),
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "date_range": list(date_range),
+            "grand_total": totals.get("grand_total", 0.0),
+            "category_totals": totals.get("category_totals", {}),
+            "exceptions_count": len(exceptions),
+            "num_items": len(rows),
+        }
+        with open(reports_dir / f"expense_report_{ts_str}.json", "w", encoding="utf-8") as jf:
+            json.dump(meta, jf, indent=2)
+        logger.info("   ✔ Archived report copy saved to: %s", archived_pdf)
+    except Exception as e:
+        logger.warning("   ⚠ Could not archive report copy: %s", e)
+
     return output_path
 
 
@@ -758,5 +788,54 @@ def send_email_with_pdf(
     except Exception as exc:
         logger.error("   SMTP error: %s", exc)
         result["status"] = f"failed — {exc}"
+
+    return result
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TOOL 8 — Dynamic Prompt & Intent Parser
+# ════════════════════════════════════════════════════════════════════════════
+
+def parse_prompt_instruction(
+    instruction: str,
+    default_recipient: str = "finance@yourcompany.com",
+) -> dict[str, Any]:
+    """
+    Dynamically extract execution parameters from user prompt.
+    Extracts:
+      - recipient: custom email address if provided (e.g. 'audit@company.com')
+      - date_scope: 'all' if user asked for all records/dates, else 'last_month'
+      - category_filter: specific category if specified (e.g. 'only Meals')
+      - instruction: original instruction
+    """
+    instruction_clean = (instruction or "").strip()
+    result: dict[str, Any] = {
+        "recipient": default_recipient,
+        "date_scope": "last_month",
+        "category_filter": None,
+        "instruction": instruction_clean,
+    }
+
+    if not instruction_clean:
+        return result
+
+    # 1. Detect custom email address
+    email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", instruction_clean)
+    if email_match:
+        result["recipient"] = email_match.group(0)
+
+    # 2. Detect date scope
+    lower_prompt = instruction_clean.lower()
+    if any(k in lower_prompt for k in ["all expenses", "all records", "everything", "all dates", "entire year"]):
+        result["date_scope"] = "all"
+    elif "last month" in lower_prompt or "previous month" in lower_prompt:
+        result["date_scope"] = "last_month"
+
+    # 3. Detect category filter (e.g. "only meals", "flights only", "just hotels")
+    for cat in VALID_CATEGORIES:
+        pattern = rf"\b(?:only\s+{cat.lower()}|{cat.lower()}\s+only|just\s+{cat.lower()})\b"
+        if re.search(pattern, lower_prompt):
+            result["category_filter"] = cat
+            break
 
     return result

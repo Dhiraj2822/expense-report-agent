@@ -28,6 +28,10 @@ data/chroma_db/
 expense_report.pdf
 drafted_email.txt
 outbox/
+data/checkpoints.db
+reports/*.pdf
+reports/*.json
+!reports/.gitkeep
 
 # Pytest
 .pytest_cache/
