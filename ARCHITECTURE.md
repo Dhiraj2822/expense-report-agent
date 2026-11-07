@@ -97,6 +97,16 @@ flowchart TD
 - **Problem**: Submitting travel expense reports and dispatching emails to a corporate finance department is an **irreversible external action**.
 - **Agentic Solution**: Before calling SMTP, the pipeline enters a synchronous pause displaying a consolidated financial summary, category totals, and Auditor anomaly warnings. The system requires human sign-off (`approve`) before dispatching, or accepts feedback (`reject`) to return control to the Coordinator. For automated regression tests and CI/CD demos, `--auto-approve` can be passed.
 
+### E. Fault Tolerance & Durable State Checkpointing (`SqliteSaver`)
+- **Problem**: In multi-step pipelines, if the server crashes or halts halfway (e.g., at Node 3 or 4), in-memory state is lost, forcing the user to repeat the entire process from Step 1.
+- **Agentic Solution**: We compile the LangGraph DAG with an on-disk SQLite checkpointer (`SqliteSaver` pointing to `data/checkpoints.db`). Every completed node atomically commits the shared blackboard state. If an interruption occurs at any stage, re-invoking the graph with the same session `thread_id` immediately resumes from the exact pending node without re-running completed nodes.
+
+### F. Historical Report Archival & Dynamic Intent Parser
+- **Problem**: Overwriting a single report file forces repetitive pipeline runs. Furthermore, rigid pipelines fail when users provide non-standard instructions (e.g. asking for all dates, a specific category, or a different recipient).
+- **Agentic Solution**:
+  1. **Historical Archival**: Every PDF generated is timestamped into `reports/` alongside a structured `.json` metadata file, allowing users to browse and download past reports instantly in the UI.
+  2. **Dynamic Intent Parser**: The Coordinator dynamically extracts target email recipients, date scopes (*last month* vs *all records*), and category filters from natural language instructions.
+
 ---
 
 ## 4. Real vs. Fallback Implementation Matrix
