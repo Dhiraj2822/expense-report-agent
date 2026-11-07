@@ -176,18 +176,43 @@ The pipeline **never crashes** due to a missing LLM.
 
 ---
 
-## Streamlit Observability Dashboard (Phase 3)
+## Fault Tolerance, Crash Recovery & Intent Features (Phase 4)
+
+### 1. Crash Recovery at Any Step (`SqliteSaver`)
+Every node transition in the LangGraph multi-agent pipeline is saved to an on-disk SQLite checkpoint (`data/checkpoints.db`).
+- **Simulate a crash at any step (CLI):**
+  ```bash
+  python main.py --mode extended --auto-approve --answers data/answers.json --thread-id session_viva --simulate-crash-at categorizer
+  ```
+- **Resume from the checkpoint without repeating earlier nodes:**
+  ```bash
+  python main.py --mode extended --auto-approve --answers data/answers.json --thread-id session_viva
+  ```
+
+### 2. Historical Reports Archive
+Every report generated is automatically archived in `reports/` (`expense_report_YYYYMMDD_HHMMSS.pdf` + `.json` metadata). Users can view and download past reports from the Streamlit UI without running the pipeline again.
+
+### 3. Dynamic Prompt & Intent Extraction
+The Coordinator agent dynamically parses user prompts to extract:
+- **Custom Recipient:** e.g., `"Generate report and email to external-audit@firm.com"`
+- **Date Scope:** e.g., `"Generate report for all expenses in the file"` (bypasses default last-calendar-month filter)
+- **Category Filter:** e.g., `"Generate report for only Meals expenses"`
+
+---
+
+## Streamlit Observability Dashboard (Phase 3 & 4)
 
 Launch the interactive web interface:
 ```bash
 streamlit run streamlit_app.py
 ```
 Provides:
-- Live blackboard state inspection
-- Real-time FIPA-ACL multi-agent communication log
-- Downloadable PDF report and `.eml` message viewer
-- Interactive human approval gate (`Approve` / `Reject`)
-- Long-term memory category correction panel
+- **Crash Simulation & Live Resume:** Simulate server failures at Step 1, 2, 3, 4, or 5 and click *'Resume Interrupted Checkpoint'* to demonstrate fault tolerance.
+- **Past Reports Viewer:** Browse, preview, and download previously generated PDF reports instantly.
+- **Dynamic Prompt Presets:** One-click preset prompt buttons (Custom Recipient, Meals Only, All Expenses).
+- **LangGraph Checkpoint Inspector:** Real-time visibility into pending nodes and thread checkpoint records.
+- **Live Blackboard State & FIPA-ACL Logs:** Full transcript of agent-to-agent communication.
+- **Interactive Human Approval Gate & Long-Term Memory Correction:** User-in-the-loop controls.
 
 ---
 
@@ -195,7 +220,7 @@ Provides:
 
 Run the automated test suite covering Units 3 & 4:
 ```bash
-python -m pytest -v tests/test_agent.py
+python -m pytest -p no:asyncio -v tests/test_agent.py
 ```
 
 ---
