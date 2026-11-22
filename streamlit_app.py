@@ -317,9 +317,11 @@ with metric_columns[1]:
     metric_card("Human gate", "Auto-approved" if auto_approve else "Approval required", "verified_user", "Approval setting")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Generate report
+# Generate report action
 # ─────────────────────────────────────────────────────────────────────────────
+st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 btn_execute = st.button("Generate report", type="primary", use_container_width=True)
+st.markdown("<div style='margin-bottom: 0.75rem;'></div>", unsafe_allow_html=True)
 
 if "final_state" in st.session_state:
     workflow_progress = completed_workflow_progress(

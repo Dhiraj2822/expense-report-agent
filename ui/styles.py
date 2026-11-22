@@ -35,18 +35,18 @@ def load_css() -> None:
         .hero-title { margin: .4rem 0 .35rem; color: #F1F5FC; font-size: clamp(1.8rem,3vw,2.4rem); line-height: 1.15; }
         .hero-copy { margin: 0; color: #AAB7CC; font-size: .95rem; }
         .metric-card { box-sizing: border-box; display: flex; flex-direction: column; height: 144px; min-height: 144px;
-            padding: 1rem 1.05rem; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
+            padding: 1rem 1.05rem; margin-bottom: 1.25rem; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
         .metric-top { display:flex; align-items:center; justify-content:space-between; color:var(--muted); font-size:.75rem; font-weight:600; }
         .metric-icon { color:#8B93FF; font-size:1.2rem; }
         .metric-value { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
             margin-top:.55rem; color:#F1F5FC; font:600 1.05rem 'Inter',sans-serif; overflow-wrap:anywhere; }
         .metric-detail { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:1; overflow:hidden;
             color:var(--muted); font-size:.72rem; margin-top:auto; padding-top:.35rem; }
-        .section-eyebrow { margin:1.1rem 0 .5rem; color:#8F9DB5; font-size:.68rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+        .section-eyebrow { margin:1.25rem 0 .5rem; color:#8F9DB5; font-size:.68rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
         .glass-card { padding:1rem 1.1rem; border:1px solid var(--border); border-radius:14px; background:var(--panel); }
         .preset-copy { min-height:2.1rem; margin:.1rem .1rem .5rem; color:#95A3BA; font-size:.75rem; line-height:1.45; }
         div.stButton > button { min-height:3rem; border-radius:9px; font-weight:600; line-height:1.3; white-space:normal; }
-        div.stButton > button[kind="primary"] { color:white; border:1px solid #4F46E5; background:#4F46E5; }
+        div.stButton > button[kind="primary"] { color:white; border:1px solid #4F46E5; background:#4F46E5; margin-top:1rem !important; margin-bottom:0.75rem !important; }
         div.stButton > button[kind="primary"]:hover { border-color:#6366F1; background:#5558E8; }
         div.stButton > button[kind="secondary"] { color:#DCE5F4; border:1px solid rgba(148,163,184,.3); background:rgba(255,255,255,.025); }
         div.stButton > button[kind="secondary"]:hover { color:white; border-color:#818CF8; background:rgba(99,102,241,.1); }
