@@ -184,8 +184,13 @@ def agent_retriever(state: dict[str, Any]) -> dict[str, Any]:
     else:
         valid, date_exceptions = filter_last_month(raw)
         first, last = last_month_range()
-        date_range = (first.strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d"))
-        print(f"   => SCOPE: Last calendar month ({date_range[0]} to {date_range[1]})")
+        if valid and not (first.strftime("%Y-%m-%d") <= valid[0].get("date", "") <= last.strftime("%Y-%m-%d")):
+            dates = [r["date"] for r in valid if r.get("date")]
+            date_range = (min(dates), max(dates)) if dates else ("N/A", "N/A")
+            print(f"   => ADAPTIVE SCOPE: Multi-dataset range detected ({date_range[0]} to {date_range[1]})")
+        else:
+            date_range = (first.strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d"))
+            print(f"   => SCOPE: Last calendar month ({date_range[0]} to {date_range[1]})")
 
     cat_filter = parsed.get("category_filter")
     if cat_filter:

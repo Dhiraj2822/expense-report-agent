@@ -129,3 +129,26 @@ def test_long_term_memory_reuse_and_user_correction(tmp_path):
     cat_corr, matches_corr, reason_corr = store.resolve_category("Bistro 42", "Business lunch")
     assert cat_corr == "Meals"
     assert "user_correction" in reason_corr
+
+
+def test_pdf_and_multi_dataset_ingestion():
+    """Test ingestion of alternate CSV and PDF expense statements."""
+    from tools import retrieve_expenses, normalize_expense_date
+
+    # 1. Date normalization test
+    assert normalize_expense_date("2026-10-04") == "2026-10-04"
+    assert normalize_expense_date("04/10/2026") == "2026-10-04"
+    assert normalize_expense_date("4 Oct 2026") == "2026-10-04"
+
+    # 2. October CSV ingestion test
+    oct_rows = retrieve_expenses("data/october_expenses.csv")
+    assert len(oct_rows) == 20
+    assert any(r["vendor"] == "Delta Airlines" for r in oct_rows)
+
+    # 3. PDF statement ingestion test
+    pdf_rows = retrieve_expenses("data/sample_expense_statement.pdf")
+    assert len(pdf_rows) == 12
+    first_pdf_item = pdf_rows[0]
+    assert first_pdf_item["date"] == "2026-10-02"
+    assert first_pdf_item["vendor"] == "Delta Airlines"
+    assert float(first_pdf_item["amount"]) == 640.00

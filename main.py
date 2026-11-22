@@ -444,6 +444,10 @@ def _parse_args():
         help="Simulate a server crash at a specific node (e.g. 'retriever', 'categorizer', 'auditor', 'reporter')",
     )
     parser.add_argument(
+        "--file-path", "--csv-path", dest="file_path", type=str, default=None,
+        help="Path to custom expense dataset (.csv or .pdf file). Defaults to data/mock_expenses.csv.",
+    )
+    parser.add_argument(
         "--thread-id", type=str, default="session_cli_default",
         help="Thread ID for SQLite checkpoint state persistence and recovery.",
     )
@@ -517,7 +521,7 @@ def main():
     # ── Build & run graph ──────────────────────────────────────────────────
     app = build_graph()
 
-    csv_path = str(Path(__file__).parent / "data" / "mock_expenses.csv")
+    csv_path = args.file_path or str(Path(__file__).parent / "data" / "mock_expenses.csv")
 
     initial_state: ExpenseState = {
         "instruction": args.instruction,

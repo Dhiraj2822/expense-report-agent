@@ -1,0 +1,21 @@
+date,vendor,description,category,amount,receipt_attached
+2026-10-02,Delta Airlines,Roundtrip flight SFO to Seattle Cloud Summit,Flights,640.00,true
+2026-10-03,Sheraton Seattle,Hotel lodging 3 nights for Tech Summit,Lodging,510.00,true
+2026-10-03,Uber,Airport transfer SEATAC to Downtown,Transport,48.20,true
+2026-10-04,Amazon Web Services,Production EC2 and Bedrock GPU clusters,Software,425.80,true
+2026-10-04,The Capital Grille,Key client executive dinner,Meals,215.40,true
+2026-10-05,Starbucks,Team morning refreshments,Meals,22.50,true
+2026-10-06,Lyft,Transit to Seattle convention center,Transport,16.75,true
+2026-10-08,GitHub,Annual Enterprise copilot organization licenses,Software,360.00,true
+2026-10-10,WeWork,Conference room rental for investor pitch,Office,180.00,true
+2026-10-12,Chipotle,Quick engineering lunch,Meals,18.90,false
+2026-10-14,Best Buy,USB-C multi-display hub and cables,Hardware,89.99,true
+2026-10-15,Alaska Airlines,Regional flight Seattle to Portland,Flights,210.00,true
+2026-10-16,Hyatt Regency,Hotel Portland 1 night,Lodging,165.00,true
+2026-10-18,Staples,Meeting presentation foam boards and printing,Office,45.30,true
+2026-10-20,Sweetgreen,Lunch with partner architect,Meals,32.40,true
+2026-10-22,Google Cloud,BigQuery analytics compute billing,Software,142.15,true
+2026-10-25,Uber,Ride Portland hotel to PDX airport,Transport,36.50,true
+2026-10-26,Southwest Airlines,Return flight Portland to SFO,Flights,290.00,true
+2026-10-28,FedEx Office,Rush delivery of legal signed agreements,Office,28.60,true
+2026-10-30,Panera Bread,End of month team retrospective breakfast,Meals,54.80,true

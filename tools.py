@@ -105,24 +105,206 @@ def last_month_range(reference: date | None = None) -> tuple[date, date]:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# TOOL 1 — Retrieve expenses from CSV
+# TOOL 1 — Retrieve expenses from CSV or PDF
 # ════════════════════════════════════════════════════════════════════════════
 
+def normalize_expense_date(date_str: str) -> str:
+    """Normalize various date formats (e.g. DD/MM/YYYY, MM/DD/YYYY, Mon DD, YYYY) to YYYY-MM-DD."""
+    raw = (date_str or "").strip()
+    if not raw:
+        return ""
+    formats = [
+        "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d",
+        "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y",
+        "%m-%d-%Y", "%m/%d/%Y", "%m.%d.%Y",
+        "%d %b %Y", "%d %B %Y",
+        "%b %d, %Y", "%B %d, %Y",
+        "%b %d %Y", "%B %d %Y",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    return raw
+
+
+def extract_expenses_from_pdf(pdf_source: str | Path) -> list[dict[str, Any]]:
+    """
+    Extract expense line items from a PDF statement using pypdf.
+    Supports both line-by-line delimitations and stream-based column extractions.
+    Returns standard list of dicts: [date, vendor, description, category, amount, receipt_attached].
+    """
+    import pypdf
+
+    path = Path(pdf_source)
+    if not path.exists():
+        raise FileNotFoundError(f"PDF file not found: {pdf_source}")
+
+    logger.info("   [PDF EXTRACTION] Parsing text from: %s", path.name)
+    reader = pypdf.PdfReader(str(path))
+    full_text = ""
+    for page in reader.pages:
+        txt = page.extract_text()
+        if txt:
+            full_text += txt + "\n"
+
+    lines = [ln.strip() for ln in full_text.split("\n") if ln.strip()]
+    records: list[dict[str, Any]] = []
+
+    date_regex = re.compile(
+        r"(\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{4}\b|"
+        r"\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b|"
+        r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b)",
+        re.IGNORECASE,
+    )
+    amount_regex = re.compile(r"[\$€£₹]?\s*(\b\d{1,4}(?:,\d{3})*\.\d{2}\b|\b\d+\.\d{2}\b)")
+
+    # Pass 1: Delimited line-by-line format (pipe, comma, tab, or multi-space)
+    for line in lines:
+        lower = line.lower()
+        if any(lower.startswith(k) for k in ["date", "vendor", "description", "statement", "page ", "total", "subtotal", "---"]):
+            continue
+
+        if "|" in line:
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 3:
+                d_cand = normalize_expense_date(parts[0])
+                v_cand = parts[1]
+                desc_cand = parts[2] if len(parts) > 3 else f"Expense at {v_cand}"
+                cat_cand = parts[3] if len(parts) > 4 else ""
+                amt_str = parts[-1].replace("$", "").replace(",", "").strip()
+                try:
+                    float(amt_str)
+                    records.append({
+                        "date": d_cand,
+                        "vendor": v_cand,
+                        "description": desc_cand,
+                        "category": cat_cand,
+                        "amount": amt_str,
+                        "receipt_attached": "true",
+                    })
+                    continue
+                except ValueError:
+                    pass
+
+        # Regex-based line match
+        d_m = date_regex.search(line)
+        a_m = amount_regex.search(line)
+        if d_m and a_m:
+            d_val = normalize_expense_date(d_m.group(1))
+            a_val = a_m.group(1).replace(",", "")
+            remainder = line.replace(d_m.group(0), " ").replace(a_m.group(0), " ").strip()
+            tokens = [t.strip() for t in re.split(r"\s{2,}|\t", remainder) if t.strip()]
+            if len(tokens) >= 2:
+                vendor = tokens[0]
+                desc = " ".join(tokens[1:])
+            elif len(tokens) == 1:
+                vendor = tokens[0]
+                desc = f"Expense at {vendor}"
+            else:
+                vendor = "Corporate Vendor"
+                desc = "Business Expense"
+            records.append({
+                "date": d_val,
+                "vendor": vendor,
+                "description": desc,
+                "category": "",
+                "amount": a_val,
+                "receipt_attached": "true",
+            })
+
+    # Pass 2: Stream-based parsing for vertical table extractions
+    if len(records) == 0:
+        logger.info("   [PDF EXTRACTION] Using stream extraction pass...")
+        headers = {"date", "vendor", "description", "category", "amount", "amount ($)", "receipt", "receipt_attached"}
+        clean_stream = [
+            l for l in lines
+            if l.lower() not in headers and not any(l.lower().startswith(p) for p in ["statement", "page ", "employee", "dept", "apex", "---"])
+        ]
+        i = 0
+        while i < len(clean_stream):
+            line = clean_stream[i]
+            d_m = date_regex.match(line)
+            if d_m:
+                d_val = normalize_expense_date(d_m.group(1))
+                j = i + 1
+                tokens = []
+                while j < len(clean_stream) and not amount_regex.match(clean_stream[j]) and not date_regex.match(clean_stream[j]):
+                    tokens.append(clean_stream[j])
+                    j += 1
+                if j < len(clean_stream) and amount_regex.match(clean_stream[j]):
+                    a_m = amount_regex.match(clean_stream[j])
+                    amt = a_m.group(1).replace(",", "")
+                    v = tokens[0] if len(tokens) > 0 else "Corporate Vendor"
+                    desc = tokens[1] if len(tokens) > 1 else f"Expense at {v}"
+                    cat = tokens[2] if len(tokens) > 2 else ""
+                    records.append({
+                        "date": d_val,
+                        "vendor": v,
+                        "description": desc,
+                        "category": cat,
+                        "amount": amt,
+                        "receipt_attached": "true",
+                    })
+                    i = j + 1
+                    continue
+            i += 1
+
+    logger.info("   ✔ PDF parsed: %d expense records extracted.", len(records))
+    return records
+
+
 def retrieve_expenses(csv_path: str) -> list[dict[str, Any]]:
-    """Load expenses from the mock CSV file. Returns raw rows as dicts."""
-    logger.info("   [RETRIEVE] Loading expenses from: %s", csv_path)
+    """
+    Load expenses from a CSV or PDF file.
+    Returns raw rows as dicts with standardized keys:
+    [date, vendor, description, category, amount, receipt_attached].
+    """
+    logger.info("   [RETRIEVE] Ingesting expenses from: %s", csv_path)
     path = Path(csv_path)
     if not path.exists():
-        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+        raise FileNotFoundError(f"Expense file not found: {csv_path}")
 
+    # Handle PDF input
+    if path.suffix.lower() == ".pdf":
+        return extract_expenses_from_pdf(path)
+
+    # Handle CSV input
     rows: list[dict[str, Any]] = []
     with open(path, newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
             clean = {k.strip(): (v or "").strip() for k, v in row.items()}
-            rows.append(clean)
+            # Normalize column names if needed
+            normalized_row = {}
+            for k, v in clean.items():
+                k_lower = k.lower()
+                if "date" in k_lower:
+                    normalized_row["date"] = normalize_expense_date(v)
+                elif "vendor" in k_lower or "merchant" in k_lower:
+                    normalized_row["vendor"] = v
+                elif "desc" in k_lower or "detail" in k_lower:
+                    normalized_row["description"] = v
+                elif "cat" in k_lower:
+                    normalized_row["category"] = v
+                elif "amount" in k_lower or "price" in k_lower or "cost" in k_lower or "total" in k_lower:
+                    normalized_row["amount"] = v.replace("$", "").replace(",", "").strip()
+                elif "receipt" in k_lower:
+                    normalized_row["receipt_attached"] = v.lower()
+                else:
+                    normalized_row[k] = v
 
-    logger.info("   ✔ Loaded %d rows.", len(rows))
+            # Fill defaults for standard keys
+            for std_key in ["date", "vendor", "description", "category", "amount", "receipt_attached"]:
+                if std_key not in normalized_row:
+                    normalized_row[std_key] = ""
+            if not normalized_row["receipt_attached"]:
+                normalized_row["receipt_attached"] = "true" if normalized_row["amount"] else "false"
+
+            rows.append(normalized_row)
+
+    logger.info("   ✔ Loaded %d rows from CSV.", len(rows))
     return rows
 
 
@@ -130,10 +312,12 @@ def retrieve_expenses(csv_path: str) -> list[dict[str, Any]]:
 # TOOL 2 — Filter to last calendar month
 # ════════════════════════════════════════════════════════════════════════════
 
-def filter_last_month(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+def filter_last_month(rows: list[dict], allow_fallback_to_dataset_month: bool = True) -> tuple[list[dict], list[dict]]:
     """
     Keep only rows whose date falls in the previous calendar month.
     Uses REPORT_TODAY env var as the reference for 'today'.
+    If no rows fall into the default window (e.g. October or custom dataset is provided)
+    and allow_fallback_to_dataset_month is True, adaptively accepts the valid dated rows.
 
     Returns:
         (valid_rows, exception_rows)
@@ -148,6 +332,7 @@ def filter_last_month(rows: list[dict]) -> tuple[list[dict], list[dict]]:
 
     valid: list[dict] = []
     exceptions: list[dict] = []
+    valid_dates_found: list[dict] = []
 
     for row in rows:
         raw_date = row.get("date", "").strip()
@@ -165,8 +350,17 @@ def filter_last_month(rows: list[dict]) -> tuple[list[dict], list[dict]]:
             logger.warning("   ⚠ Row flagged — bad date format: %s", row.get("vendor"))
             continue
 
+        valid_dates_found.append(row)
         if first_day <= expense_date <= last_day:
             valid.append(row)
+
+    # Adaptive fallback for multi-dataset / uploaded files:
+    if len(valid) == 0 and len(valid_dates_found) > 0 and allow_fallback_to_dataset_month:
+        logger.info(
+            "   [FILTER ADAPTIVE] 0 rows in default %s to %s. Auto-detecting %d valid dataset records.",
+            first_day, last_day, len(valid_dates_found)
+        )
+        valid = valid_dates_found
 
     logger.info(
         "   ✔ %d rows in range | %d flagged/out-of-range.",

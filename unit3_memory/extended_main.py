@@ -162,7 +162,11 @@ def run_extended(args: Any) -> dict[str, Any]:
         app.update_state(config, updates)
         return app.invoke(None, config=config)
 
-    csv_path = str(Path(__file__).parent.parent / "data" / "mock_expenses.csv")
+    csv_path = (
+        getattr(args, "file_path", None)
+        or getattr(args, "csv_path", None)
+        or str(Path(__file__).parent.parent / "data" / "mock_expenses.csv")
+    )
 
     initial_state = {
         "instruction": getattr(args, "instruction", "Generate my travel expense report for last month and email it to finance."),

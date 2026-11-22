@@ -37,6 +37,46 @@ auto_approve = st.sidebar.checkbox("Auto-Approve Human Gate", value=True)
 answers_choice = st.sidebar.selectbox("Scripted Answers", ["data/answers.json", "None"], index=0)
 answers_path = None if answers_choice == "None" else answers_choice
 
+# Dataset Selection & File Ingestion (CSV / PDF)
+st.sidebar.markdown("---")
+st.sidebar.subheader("📂 Expense Dataset Ingestion")
+dataset_choice = st.sidebar.selectbox(
+    "Select Expense Source",
+    [
+        "Preset 1: Corporate Travel (Sept 2026 CSV)",
+        "Preset 2: Cloud Summit & Tech (Oct 2026 CSV)",
+        "Preset 3: Official Statement (Oct 2026 PDF)",
+        "📤 Upload Custom File (CSV or PDF)",
+    ],
+    index=0,
+    help="Select a benchmark dataset or upload your own CSV spreadsheet / PDF document.",
+)
+
+active_dataset_path = None
+if dataset_choice.startswith("Preset 1"):
+    active_dataset_path = str(Path(__file__).parent / "data" / "mock_expenses.csv")
+elif dataset_choice.startswith("Preset 2"):
+    active_dataset_path = str(Path(__file__).parent / "data" / "october_expenses.csv")
+elif dataset_choice.startswith("Preset 3"):
+    active_dataset_path = str(Path(__file__).parent / "data" / "sample_expense_statement.pdf")
+else:
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload Expense File (.csv or .pdf)",
+        type=["csv", "pdf"],
+        help="Upload an expense statement PDF or spreadsheet CSV to process via the agent.",
+    )
+    if uploaded_file is not None:
+        uploads_dir = Path(__file__).parent / "data" / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        saved_upload_path = uploads_dir / uploaded_file.name
+        with open(saved_upload_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        active_dataset_path = str(saved_upload_path)
+        st.sidebar.success(f"✔ File loaded: `{uploaded_file.name}`")
+    else:
+        active_dataset_path = str(Path(__file__).parent / "data" / "mock_expenses.csv")
+        st.sidebar.info("Upload your file above, or default dataset will be used.")
+
 # Fault Tolerance & Crash Demo
 st.sidebar.markdown("---")
 st.sidebar.subheader("💥 Server Crash & Recovery Demo")
@@ -129,6 +169,19 @@ default_instruction = st.session_state.get(
 
 instruction = st.text_input("User Instruction", value=default_instruction)
 
+# ── Dataset Inspection Preview ───────────────────────────────────────────────
+from tools import retrieve_expenses
+try:
+    preview_items = retrieve_expenses(active_dataset_path)
+    file_type = "PDF Statement" if active_dataset_path.lower().endswith(".pdf") else "CSV Spreadsheet"
+    with st.expander(f"📊 Dataset Preview: {Path(active_dataset_path).name} ({len(preview_items)} records | {file_type})", expanded=False):
+        import pandas as pd
+        df_preview = pd.DataFrame(preview_items)
+        st.dataframe(df_preview, use_container_width=True)
+        st.caption(f"📁 Source: `{active_dataset_path}`")
+except Exception as e:
+    st.info(f"Dataset preview ready upon file selection: {e}")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Action Buttons: Execute vs Resume
 # ─────────────────────────────────────────────────────────────────────────────
@@ -145,7 +198,7 @@ if btn_execute:
     with st.spinner("Agent pipeline executing..."):
         from llm_config import get_llm
         _, llm_label = get_llm()
-        csv_path = str(Path(__file__).parent / "data" / "mock_expenses.csv")
+        csv_path = active_dataset_path
         config = {"configurable": {"thread_id": session_thread_id}}
 
         if run_mode == "extended":
