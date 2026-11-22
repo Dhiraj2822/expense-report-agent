@@ -572,10 +572,12 @@ if "final_state" in st.session_state:
             chart_colors = ["#818CF8", "#22D3EE", "#10B981", "#F59E0B", "#A78BFA", "#F472B6"]
 
             has_plotly = False
+            px = None
             try:
-                import plotly.express as px
-                has_plotly = True
-            except ImportError:
+                import importlib
+                px = importlib.import_module("plotly.express")
+                has_plotly = px is not None
+            except (ImportError, ModuleNotFoundError):
                 has_plotly = False
 
             if has_plotly:
