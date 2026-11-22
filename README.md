@@ -3,9 +3,9 @@
 
 > _"Generate my travel expense report for last month and email it to finance."_
 
-A fully offline, open-source AI agent built with **LangGraph + local Ollama** that
-retrieves expenses, categorises them using an LLM, generates a PDF report, and emails
-it — all without any paid API keys.
+An open-source AI agent built with **LangGraph + local Ollama** that retrieves expenses,
+categorises them using an LLM, and generates a PDF report. Email can run in demo mode,
+through SMTP, or through Brevo's Transactional API.
 
 ---
 
@@ -24,8 +24,15 @@ pip install -r requirements.txt
 
 # 3. Copy and configure environment
 copy .env.example .env        # Windows
-# Leave SMTP_USER/PASS empty for demo mode (simulated send)
+# Leave email credentials empty for simulated demo mode
 ```
+
+### Enable Brevo Email
+1. In Brevo, create an API key and verify the sender email address you plan to use.
+2. In `.env`, set `EMAIL_PROVIDER=brevo`, `BREVO_API_KEY` to your API key, and
+   `SMTP_FROM` to the verified sender address.
+3. Keep `.env` local; never commit API keys. If Brevo is selected without a key,
+   sending fails explicitly instead of silently switching providers.
 
 ### Run Base Pipeline
 ```bash
@@ -106,10 +113,13 @@ The pipeline **never crashes** due to a missing LLM.
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `REPORT_TODAY` | (real date) | Override "today" for reproducible demos |
 | `FINANCE_EMAIL` | `finance@yourcompany.com` | Email recipient |
-| `SMTP_HOST/PORT/USER/PASS` | Mailtrap sandbox | SMTP credentials |
+| `EMAIL_PROVIDER` | `smtp` | `smtp` or `brevo` |
+| `BREVO_API_KEY` | (unset) | Brevo Transactional API key, required when using Brevo |
+| `SMTP_FROM` | `agent@expense-report.dev` | Sender address; must be verified in Brevo |
+| `SMTP_HOST/PORT/USER/PASS` | Mailtrap sandbox | SMTP credentials when `EMAIL_PROVIDER=smtp` |
 | `CHROMA_PERSIST_DIR` | `chroma_db` | ChromaDB storage folder |
 | `MEMORY_TOP_K` | `3` | How many memory matches to retrieve |
-| `MEMORY_SIMILARITY_THRESHOLD` | `0.85` | Above this score → skip LLM |
+| `MEMORY_SIMILARITY_THRESHOLD` | `0.80` | Matching categories above this score can be reused from memory |
 | `SHORT_TERM_WINDOW` | `5` | Steps to keep in sliding window |
 
 ---
@@ -207,12 +217,18 @@ Launch the interactive web interface:
 streamlit run streamlit_app.py
 ```
 Provides:
+- **Visible CSV/PDF upload:** Drop a statement into the main-page upload area; an uploaded file takes priority over the sample dataset until removed.
 - **Crash Simulation & Live Resume:** Simulate server failures at Step 1, 2, 3, 4, or 5 and click *'Resume Interrupted Checkpoint'* to demonstrate fault tolerance.
+- **Refresh recovery:** Extended mode saves completed steps in SQLite. A browser refresh does not run the pipeline in the background; reopen the URL (which keeps the thread ID) and choose *Resume Interrupted Checkpoint*. The current uncheckpointed node can run again, so refreshing during email delivery may cause a duplicate. Base mode is not resumable.
 - **Past Reports Viewer:** Browse, preview, and download previously generated PDF reports instantly.
 - **Dynamic Prompt Presets:** One-click preset prompt buttons (Custom Recipient, Meals Only, All Expenses).
 - **LangGraph Checkpoint Inspector:** Real-time visibility into pending nodes and thread checkpoint records.
 - **Live Blackboard State & FIPA-ACL Logs:** Full transcript of agent-to-agent communication.
 - **Interactive Human Approval Gate & Long-Term Memory Correction:** User-in-the-loop controls.
+
+### Hosting with Ollama
+
+[Streamlit Community Cloud](https://docs.streamlit.io/deploy/streamlit-community-cloud) offers free hosting for the Streamlit interface. It does not automatically connect to Ollama running on your own computer: in a cloud app, `localhost:11434` refers to the cloud container. To use Ollama, host it on a machine reachable by the app and configure `OLLAMA_BASE_URL`; protect that endpoint with authentication rather than exposing it publicly. Free CPU hosting is not a dependable way to run a 7B model. The app also stores checkpoints, uploads, reports, and Chroma data on local paths, so production hosting needs persistent storage.
 
 ---
 

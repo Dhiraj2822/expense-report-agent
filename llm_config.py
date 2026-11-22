@@ -17,6 +17,7 @@ The rest of the pipeline handles None gracefully:
 
 import logging
 import os
+from functools import lru_cache
 
 from dotenv import load_dotenv
 
@@ -29,14 +30,14 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 # Internal helper
 # ────────────────────────────────────────────────────────────────────────────
 
-def _try_ollama() -> tuple:
+def _try_ollama(model: str | None = None, base_url: str | None = None) -> tuple:
     """
     Attempt to create a local Ollama ChatLLM.
     Tries langchain_ollama (newer) then langchain_community fallback.
     Returns (llm, label) or raises an exception.
     """
-    model    = os.getenv("OLLAMA_MODEL",    "qwen2.5:7b")
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    model = model or os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+    base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
     # Try the dedicated langchain_ollama package first
     try:
@@ -66,6 +67,11 @@ def _try_ollama() -> tuple:
     return llm, f"Local Ollama ({model})"
 
 
+@lru_cache(maxsize=4)
+def _cached_ollama(model: str, base_url: str) -> tuple:
+    return _try_ollama(model, base_url)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Public entry point
 # ────────────────────────────────────────────────────────────────────────────
@@ -81,7 +87,9 @@ def get_llm() -> tuple:
     """
     logger.info("   Attempting Local Ollama …")
     try:
-        llm, label = _try_ollama()
+        model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        llm, label = _cached_ollama(model, base_url)
         logger.info("   ✔ LLM provider: %s", label)
         return llm, label
     except Exception as exc:

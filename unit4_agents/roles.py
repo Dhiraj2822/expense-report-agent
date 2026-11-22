@@ -44,6 +44,8 @@ from tools import (
     send_email_with_pdf,
     last_month_range,
     get_report_today,
+    filter_category_candidates,
+    filter_expenses_by_category,
     VALID_CATEGORIES,
     parse_prompt_instruction,
 )
@@ -195,8 +197,7 @@ def agent_retriever(state: dict[str, Any]) -> dict[str, Any]:
     cat_filter = parsed.get("category_filter")
     if cat_filter:
         print(f"   => DYNAMIC CATEGORY FILTER: Retaining items matching or inferring '{cat_filter}'")
-        # Keep items that either already have that category or need categorization
-        valid = [r for r in valid if (r.get("category") or "").lower() == cat_filter.lower() or not (r.get("category") or "").strip()]
+        valid = filter_category_candidates(valid, cat_filter)
 
     print_trace(
         node_name="RetrieverAgent",
@@ -260,7 +261,7 @@ def agent_categorizer(state: dict[str, Any]) -> dict[str, Any]:
         llm_label = state.get("llm_label", "Unknown")
 
     categorized: list[dict[str, Any]] = []
-    amount_exceptions: list[dict[str, Any]] = []
+    missing_amount_rows: list[dict[str, Any]] = []
     mem_hits = 0
     llm_calls = 0
 
@@ -269,10 +270,10 @@ def agent_categorizer(state: dict[str, Any]) -> dict[str, Any]:
     for r in rows:
         vendor = r.get("vendor", "")
         desc = r.get("description", "")
-        existing_cat = r.get("category", "").strip()
+        existing_cat = str(r.get("category") or "").strip()
 
         # Check for missing amount flag
-        amt_str = r.get("amount", "").strip()
+        amt_str = str(r.get("amount") or "").strip()
         has_amount = False
         if amt_str:
             try:
@@ -282,7 +283,7 @@ def agent_categorizer(state: dict[str, Any]) -> dict[str, Any]:
 
         if not has_amount:
             r["_flag"] = "missing amount"
-            amount_exceptions.append(dict(r))
+            missing_amount_rows.append(r)
 
         # Categorization logic
         if existing_cat and existing_cat in VALID_CATEGORIES:
@@ -314,6 +315,17 @@ def agent_categorizer(state: dict[str, Any]) -> dict[str, Any]:
             # Store learned result in long-term memory
             memory_store.store_memory(vendor=vendor, description=desc, category=cat_result, source="model")
 
+    category_filter = state.get("parsed_intent", {}).get("category_filter")
+    if category_filter:
+        categorized = filter_expenses_by_category(categorized, category_filter)
+        amount_exceptions = [
+            dict(row)
+            for row in missing_amount_rows
+            if str(row.get("category") or "").strip().casefold() == category_filter.casefold()
+        ]
+    else:
+        amount_exceptions = [dict(row) for row in missing_amount_rows]
+
     print_trace(
         node_name="CategorizerAgent",
         tool_name="ExpenseMemoryStore.resolve_category + categorize_expenses",
@@ -343,6 +355,7 @@ def agent_categorizer(state: dict[str, Any]) -> dict[str, Any]:
 
     new_state = {
         **state,
+        "llm_label": llm_label,
         "categorized_expenses": categorized,
         "exceptions": all_exceptions,
         "message_log": msg_log,
@@ -381,7 +394,7 @@ def agent_auditor(state: dict[str, Any]) -> dict[str, Any]:
     updated_rows, remaining_exceptions, adjust_logs = fb_manager.adjust_resolve_items(
         rows=rows,
         missing_items=missing_items,
-        auto_prompt=(state.get("mode") == "extended"),
+        auto_prompt=state.get("terminal_input", False),
     )
 
     for al in adjust_logs:

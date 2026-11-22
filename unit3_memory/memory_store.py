@@ -24,6 +24,7 @@ import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -35,6 +36,16 @@ logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 
 DEFAULT_SIMILARITY_THRESHOLD = float(os.getenv("MEMORY_SIMILARITY_THRESHOLD", "0.80"))
 DEFAULT_DB_PATH = os.getenv("CHROMA_DB_PATH", str(Path(__file__).parent.parent / "data" / "chroma_db"))
+
+
+@lru_cache(maxsize=1)
+def _sentence_transformer_embedding_function():
+    import chromadb
+    from chromadb.utils import embedding_functions
+
+    return embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="BAAI/bge-small-en-v1.5"
+    )
 
 
 class ExpenseMemoryStore:
@@ -67,9 +78,7 @@ class ExpenseMemoryStore:
 
             # Use local BAAI/bge-small-en-v1.5 as per hard constraints
             try:
-                emb_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name="BAAI/bge-small-en-v1.5"
-                )
+                emb_fn = _sentence_transformer_embedding_function()
             except Exception as e:
                 logger.warning(f"Could not load BAAI/bge-small-en-v1.5: {e}. Using Chroma default.")
                 emb_fn = embedding_functions.DefaultEmbeddingFunction()

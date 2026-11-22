@@ -25,6 +25,7 @@ Side-effect tools:
 from __future__ import annotations
 
 import csv
+import base64
 import io
 import json
 import logging
@@ -40,6 +41,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 
@@ -55,6 +58,41 @@ logger = logging.getLogger(__name__)
 
 # ── Valid expense categories ───────────────────────────────────────────────
 VALID_CATEGORIES = {"Flights", "Hotels", "Meals", "Transport", "Misc"}
+_CATEGORY_PROMPT_ALIASES = {
+    "Flights": ("flight", "flights"),
+    "Hotels": ("hotel", "hotels"),
+    "Meals": ("meal", "meals", "meak"),
+    "Transport": ("transport",),
+    "Misc": ("misc", "miscellaneous"),
+}
+
+
+def filter_category_candidates(rows: list[dict], category: str | None) -> list[dict]:
+    """Keep matching, uncategorized, and nonstandard rows for category inference."""
+    target = (category or "").strip().casefold()
+    if not target:
+        return list(rows)
+
+    valid_categories = {value.casefold() for value in VALID_CATEGORIES}
+    return [
+        row
+        for row in rows
+        if (value := str(row.get("category") or "").strip().casefold()) == target
+        or value not in valid_categories
+    ]
+
+
+def filter_expenses_by_category(rows: list[dict], category: str | None) -> list[dict]:
+    """Keep only categorized rows matching the requested category."""
+    target = (category or "").strip().casefold()
+    if not target:
+        return list(rows)
+    return [
+        row
+        for row in rows
+        if str(row.get("category") or "").strip().casefold() == target
+    ]
+
 
 # ── Keyword rules for offline / fallback categorisation ───────────────────
 _KEYWORD_RULES: list[tuple[list[str], str]] = [
@@ -420,17 +458,19 @@ def categorize_expenses(
 
     for row in rows:
         # ── Flag missing amount but keep processing ────────────────────────
-        if not row.get("amount", "").strip():
+        missing_amount = not str(row.get("amount") or "").strip()
+        if missing_amount:
             row["_flag"] = "missing amount"
-            new_exceptions.append({**row, "_source": "categorize_step"})
             logger.warning(
                 "   ⚠ Row flagged — missing amount: vendor=%s",
                 row.get("vendor"),
             )
 
-        existing_cat = row.get("category", "").strip()
+        existing_cat = str(row.get("category") or "").strip()
         if existing_cat in VALID_CATEGORIES:
             categorized.append(row)
+            if missing_amount:
+                new_exceptions.append({**row, "_source": "categorize_step"})
             continue
 
         vendor      = row.get("vendor", "Unknown")
@@ -487,6 +527,8 @@ def categorize_expenses(
 
         row = {**row, "category": inferred}
         categorized.append(row)
+        if missing_amount:
+            new_exceptions.append({**row, "_source": "categorize_step"})
 
     logger.info(
         "   ✔ Categorisation complete. %d rows processed, %d amount-flags raised.",
@@ -902,10 +944,11 @@ def send_email_with_pdf(
     recipient:  str,
 ) -> dict[str, Any]:
     """
-    Send the drafted email with the PDF attached via SMTP.
-    Reads credentials from environment variables.
+    Send the drafted email with the PDF attached using Brevo API or SMTP.
+    Reads provider credentials from environment variables.
     Returns a result dict with status and details.
     """
+    provider = os.getenv("EMAIL_PROVIDER", "smtp").strip().lower()
     smtp_host = os.getenv("SMTP_HOST", "sandbox.smtp.mailtrap.io")
     smtp_port = int(os.getenv("SMTP_PORT", "2525"))
     smtp_user = os.getenv("SMTP_USER", "")
@@ -913,8 +956,8 @@ def send_email_with_pdf(
     from_addr = os.getenv("SMTP_FROM", "agent@expense-report.dev")
 
     logger.info(
-        "   [SEND_EMAIL] Sending to %s via %s:%s …",
-        recipient, smtp_host, smtp_port,
+        "   [SEND_EMAIL] Sending to %s via %s …",
+        recipient, "Brevo API" if provider == "brevo" else f"{smtp_host}:{smtp_port}",
     )
 
     # Parse subject from body (first line if it starts with "Subject:")
@@ -926,33 +969,81 @@ def send_email_with_pdf(
         subject   = "Travel Expense Report"
         body_text = email_body
 
-    # Build MIME message
-    msg             = MIMEMultipart()
-    msg["From"]     = from_addr
-    msg["To"]       = recipient
-    msg["Subject"]  = subject
-    msg.attach(MIMEText(body_text, "plain"))
-
-    # Attach PDF
     pdf_filename = Path(pdf_path).name
     with open(pdf_path, "rb") as pdf_file:
-        pdf_part = MIMEBase("application", "octet-stream")
-        pdf_part.set_payload(pdf_file.read())
-    encoders.encode_base64(pdf_part)
-    pdf_part.add_header(
-        "Content-Disposition",
-        f'attachment; filename="{pdf_filename}"',
-    )
-    msg.attach(pdf_part)
+        pdf_bytes = pdf_file.read()
 
     result: dict[str, Any] = {
         "status":       "unknown",
+        "provider":     provider,
         "recipient":    recipient,
         "subject":      subject,
         "smtp_host":    smtp_host,
         "smtp_port":    smtp_port,
         "pdf_attached": pdf_filename,
     }
+
+    if provider == "brevo":
+        api_key = os.getenv("BREVO_API_KEY", "").strip()
+        if not api_key or "your_" in api_key.lower():
+            logger.error("   Brevo is selected, but BREVO_API_KEY is not configured.")
+            result["status"] = "failed — Brevo API key not configured"
+            result["note"] = "Set BREVO_API_KEY in .env and restart the app."
+            return result
+
+        payload = {
+            "sender": {"email": from_addr},
+            "to": [{"email": recipient}],
+            "subject": subject,
+            "textContent": body_text,
+            "attachment": [{
+                "name": pdf_filename,
+                "content": base64.b64encode(pdf_bytes).decode("ascii"),
+            }],
+        }
+        request = Request(
+            "https://api.brevo.com/v3/smtp/email",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "accept": "application/json",
+                "api-key": api_key,
+                "content-type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=15) as response:
+                status_code = response.getcode()
+                response_body = response.read()
+            response_data = json.loads(response_body.decode("utf-8")) if response_body else {}
+            if 200 <= status_code < 300:
+                result["status"] = "sent"
+                result["message_id"] = response_data.get("messageId")
+                logger.info("   ✔ Email sent successfully through Brevo.")
+            else:
+                result["status"] = f"failed — Brevo API returned HTTP {status_code}"
+                logger.error("   Brevo API returned HTTP %s.", status_code)
+        except HTTPError as exc:
+            error_body = exc.read().decode("utf-8", errors="replace")
+            try:
+                error_data = json.loads(error_body)
+                detail = error_data.get("message") or error_data.get("code") or ""
+            except (ValueError, AttributeError):
+                detail = ""
+            detail = str(detail).replace(api_key, "[redacted]")[:300]
+            result["status"] = f"failed — Brevo API returned HTTP {exc.code}"
+            if detail:
+                result["error"] = detail
+            logger.error("   Brevo API request failed with HTTP %s: %s", exc.code, detail or "no provider detail")
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
+            result["status"] = "failed — Brevo delivery error"
+            logger.error("   Brevo delivery failed: %s", exc)
+        return result
+
+    if provider != "smtp":
+        result["status"] = f"failed — unsupported email provider: {provider}"
+        logger.error("   Unsupported EMAIL_PROVIDER: %s", provider)
+        return result
 
     is_placeholder = (
         not smtp_user
@@ -967,6 +1058,20 @@ def send_email_with_pdf(
         result["status"] = "simulated (demo mode: credentials not configured)"
         result["note"]   = "Set real SMTP_USER and SMTP_PASS in .env to deliver real emails."
         return result
+
+    msg             = MIMEMultipart()
+    msg["From"]     = from_addr
+    msg["To"]       = recipient
+    msg["Subject"]  = subject
+    msg.attach(MIMEText(body_text, "plain"))
+    pdf_part = MIMEBase("application", "octet-stream")
+    pdf_part.set_payload(pdf_bytes)
+    encoders.encode_base64(pdf_part)
+    pdf_part.add_header(
+        "Content-Disposition",
+        f'attachment; filename="{pdf_filename}"',
+    )
+    msg.attach(pdf_part)
 
     try:
         with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
@@ -1025,9 +1130,15 @@ def parse_prompt_instruction(
     elif "last month" in lower_prompt or "previous month" in lower_prompt:
         result["date_scope"] = "last_month"
 
-    # 3. Detect category filter (e.g. "only meals", "flights only", "just hotels")
+    # 3. Detect category filter, including singular forms and common meal typo.
     for cat in VALID_CATEGORIES:
-        pattern = rf"\b(?:only\s+{cat.lower()}|{cat.lower()}\s+only|just\s+{cat.lower()})\b"
+        category_terms = "|".join(
+            re.escape(term) for term in _CATEGORY_PROMPT_ALIASES[cat]
+        )
+        pattern = (
+            rf"\b(?:only\s+(?:{category_terms})|"
+            rf"(?:{category_terms})\s+only|just\s+(?:{category_terms}))\b"
+        )
         if re.search(pattern, lower_prompt):
             result["category_filter"] = cat
             break

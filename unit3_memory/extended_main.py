@@ -42,6 +42,7 @@ class AgentBlackboardState(TypedDict, total=False):
     mode: str
     llm_label: str
     auto_approve: bool
+    terminal_input: bool
     answers_file: Optional[str]
     step_log: list[str]
     message_log: list[dict]
@@ -154,7 +155,7 @@ def run_extended(args: Any) -> dict[str, Any]:
     state_tuple = app.get_state(config)
     if state_tuple and state_tuple.next:
         print(f"  [CHECKPOINT RECOVERY] Resuming previous session '{thread_id}' at pending node: {state_tuple.next}")
-        updates = {"simulate_crash_at": None}
+        updates = {"simulate_crash_at": None, "terminal_input": True}
         if getattr(args, "answers", None):
             updates["answers_file"] = getattr(args, "answers")
         if getattr(args, "auto_approve", False):
@@ -174,6 +175,7 @@ def run_extended(args: Any) -> dict[str, Any]:
         "mode": "extended",
         "llm_label": llm_label,
         "auto_approve": getattr(args, "auto_approve", False),
+        "terminal_input": True,
         "answers_file": getattr(args, "answers", None),
         "step_log": [],
         "message_log": [],

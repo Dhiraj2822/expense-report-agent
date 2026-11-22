@@ -54,6 +54,9 @@ from tools import (
     send_email_with_pdf,
     last_month_range,
     get_report_today,
+    parse_prompt_instruction,
+    filter_category_candidates,
+    filter_expenses_by_category,
 )
 
 load_dotenv()
@@ -79,6 +82,7 @@ class ExpenseState(TypedDict, total=False):
     # Data
     raw_expenses:         list[dict]   # All rows from CSV
     filtered_expenses:    list[dict]   # Rows in last calendar month
+    category_filter:      Optional[str]
     categorized_expenses: list[dict]   # All rows with category filled in
     exceptions:           list[dict]   # Flagged rows (missing data)
 
@@ -147,12 +151,16 @@ def node_filter(state: ExpenseState) -> ExpenseState:
     print(f"   => Reference date (REPORT_TODAY): {get_report_today()}")
 
     valid, date_exceptions = filter_last_month(state["raw_expenses"])
+    category_filter = parse_prompt_instruction(state.get("instruction", "")).get("category_filter")
+    if category_filter:
+        valid = filter_category_candidates(valid, category_filter)
 
     print(f"   => {len(valid)} rows in range | {len(date_exceptions)} rows flagged/excluded")
     step_log = _log_step(state, f"FILTER: {len(valid)} valid rows, date={date_range[0]}..{date_range[1]}")
     return {
         **state,
         "filtered_expenses": valid,
+        "category_filter": category_filter,
         "exceptions":        date_exceptions,
         "date_range":        date_range,
         "step_log":          step_log,
@@ -185,6 +193,10 @@ def node_categorize(state: ExpenseState) -> ExpenseState:
     categorized, amount_exceptions = categorize_expenses(
         state["filtered_expenses"], llm, llm_label
     )
+    category_filter = state.get("category_filter")
+    if category_filter:
+        categorized = filter_expenses_by_category(categorized, category_filter)
+        amount_exceptions = filter_expenses_by_category(amount_exceptions, category_filter)
 
     existing_exceptions = state.get("exceptions", [])
     all_exceptions = existing_exceptions + amount_exceptions
