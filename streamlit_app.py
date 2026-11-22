@@ -566,48 +566,57 @@ if "final_state" in st.session_state:
         import pandas as pd
 
         if cat_totals:
-            import plotly.express as px
-
             chart_data = pd.DataFrame(
                 [{"Category": category, "Amount": amount} for category, amount in sorted(cat_totals.items())]
             )
             chart_colors = ["#818CF8", "#22D3EE", "#10B981", "#F59E0B", "#A78BFA", "#F472B6"]
-            donut, bars = st.columns([1, 1], gap="large")
-            with donut:
-                pie = px.pie(
-                    chart_data,
-                    names="Category",
-                    values="Amount",
-                    hole=.66,
-                    color_discrete_sequence=chart_colors,
-                )
-                pie.update_layout(
-                    title="Category mix",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    font_color="#DCE5F4",
-                    legend_title_text="",
-                    margin=dict(t=55, b=10, l=10, r=10),
-                )
-                st.plotly_chart(pie, use_container_width=True)
-            with bars:
-                bar = px.bar(
-                    chart_data,
-                    x="Category",
-                    y="Amount",
-                    color="Category",
-                    color_discrete_sequence=chart_colors,
-                )
-                bar.update_layout(
-                    title="Spend by category",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    font_color="#DCE5F4",
-                    showlegend=False,
-                    margin=dict(t=55, b=10, l=10, r=10),
-                    yaxis_title="Amount (₹)",
-                )
-                st.plotly_chart(bar, use_container_width=True)
+
+            has_plotly = False
+            try:
+                import plotly.express as px
+                has_plotly = True
+            except ImportError:
+                has_plotly = False
+
+            if has_plotly:
+                donut, bars = st.columns([1, 1], gap="large")
+                with donut:
+                    pie = px.pie(
+                        chart_data,
+                        names="Category",
+                        values="Amount",
+                        hole=.66,
+                        color_discrete_sequence=chart_colors,
+                    )
+                    pie.update_layout(
+                        title="Category mix",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font_color="#DCE5F4",
+                        legend_title_text="",
+                        margin=dict(t=55, b=10, l=10, r=10),
+                    )
+                    st.plotly_chart(pie, use_container_width=True)
+                with bars:
+                    bar = px.bar(
+                        chart_data,
+                        x="Category",
+                        y="Amount",
+                        color="Category",
+                        color_discrete_sequence=chart_colors,
+                    )
+                    bar.update_layout(
+                        title="Spend by category",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font_color="#DCE5F4",
+                        showlegend=False,
+                        margin=dict(t=55, b=10, l=10, r=10),
+                        yaxis_title="Amount (₹)",
+                    )
+                    st.plotly_chart(bar, use_container_width=True)
+            else:
+                st.bar_chart(chart_data.set_index("Category")["Amount"], color="#6366F1", use_container_width=True)
 
             category_columns = st.columns(min(len(cat_totals), 5), gap="medium")
             for col, (category, amount) in zip(category_columns, sorted(cat_totals.items())):
