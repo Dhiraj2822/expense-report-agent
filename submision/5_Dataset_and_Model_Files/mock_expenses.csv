@@ -1,0 +1,21 @@
+date,vendor,description,category,amount,receipt_attached
+2026-09-02,Delta Airlines,Flight SFO to NYC round trip,Flights,1250.00,true
+2026-09-03,Hilton Garden Inn,Hotel stay NYC 3 nights,,380.00,true
+2026-09-04,The Capital Grille,Client dinner NYC,,185.50,true
+2026-09-04,Uber,Ride from JFK to hotel,Transport,42.30,true
+2026-09-05,Starbucks,Morning coffee and breakfast,,18.75,false
+2026-09-06,Lyft,Airport pickup to hotel,,
+2026-09-07,BART,Bay Area transit commute,Transport,12.50,true
+2026-09-08,United Airlines,Flight NYC to Chicago,Flights,825.00,true
+2026-09-09,Marriott,Hotel Chicago 2 nights,,255.00,true
+2026-09-10,Olive Garden,Team lunch Chicago,,95.40,true
+2026-09-11,Lyft,Ride to O'Hare airport,Transport,38.25,true
+2026-09-12,Parking Authority,Airport parking 3 days,,
+2026-09-13,Cheesecake Factory,Dinner with client,,112.80,true
+2026-09-15,Enterprise Rent-A-Car,Car rental 2 days,Transport,52.10,true
+2026-09-17,Subway,Quick lunch at airport,,14.25,false
+2026-09-20,Holiday Inn Express,Hotel Boston 1 night,,118.30,true
+2026-09-22,McDonald's,Breakfast at airport,,9.85,false
+2026-09-24,Amtrak,Train NYC to Boston,,89.00,true
+2026-09-25,Southwest Airlines,Flight BOS to SFO,Flights,0.00,true
+2026-09-28,Uber,Ride SFO to office,Transport,31.00,true

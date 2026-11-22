@@ -1,0 +1,10 @@
+{
+  "vector_store": "ChromaDB",
+  "collection_name": "expense_memory",
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "dimension": 384,
+  "similarity_metric": "cosine",
+  "similarity_threshold": 0.85,
+  "user_correction_priority": true,
+  "description": "Persistent semantic memory of merchant vendor classifications and human corrections."
+}
