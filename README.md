@@ -45,6 +45,15 @@ python main.py                  # or: python main.py --mode base
 python main.py --mode extended
 ```
 
+### Ingest Alternate Datasets or PDF Statements (CLI)
+```bash
+# Ingest October 2026 CSV dataset
+python main.py --mode extended --file-path data/october_expenses.csv --auto-approve
+
+# Ingest PDF Corporate Statement directly via pypdf
+python main.py --mode extended --file-path data/sample_expense_statement.pdf --auto-approve
+```
+
 ### Save a User Category Correction
 ```bash
 python main.py --correct "Olive Garden=Meals"
@@ -217,10 +226,13 @@ Launch the interactive web interface:
 streamlit run streamlit_app.py
 ```
 Provides:
-- **Visible CSV/PDF upload:** Drop a statement into the main-page upload area; an uploaded file takes priority over the sample dataset until removed.
+- **Multi-Dataset Ingestion:** Choose from **Preset 1** (Sept 2026 CSV), **Preset 2** (Oct 2026 CSV), **Preset 3** (Official Statement PDF), or **Upload Custom File** (drag-and-drop CSV or PDF statements).
+- **Interactive Dataset Preview:** Expandable live data frame viewer displaying row counts, column validations, and parsed dates before executing the pipeline.
+- **Spend Intelligence (Plotly):** Interactive Category Mix donut chart and Spend by Category bar chart with graceful native fallback.
+- **Observable 7-Stage Stepper:** Visual status-aware pipeline tracking (Coordinator → Retriever → Categorizer → Auditor → Reporter → Approval → Archival).
 - **Crash Simulation & Live Resume:** Simulate server failures at Step 1, 2, 3, 4, or 5 and click *'Resume Interrupted Checkpoint'* to demonstrate fault tolerance.
-- **Refresh recovery:** Extended mode saves completed steps in SQLite. A browser refresh does not run the pipeline in the background; reopen the URL (which keeps the thread ID) and choose *Resume Interrupted Checkpoint*. The current uncheckpointed node can run again, so refreshing during email delivery may cause a duplicate. Base mode is not resumable.
-- **Past Reports Viewer:** Browse, preview, and download previously generated PDF reports instantly.
+- **Refresh recovery:** Extended mode saves completed steps in SQLite (`data/checkpoints.db`). A browser refresh does not run the pipeline in the background; reopen the URL (which keeps the thread ID) and choose *Resume Interrupted Checkpoint*.
+- **Past Reports Viewer:** Browse, preview, and download previously generated PDF reports instantly from `reports/`.
 - **Dynamic Prompt Presets:** One-click preset prompt buttons (Custom Recipient, Meals Only, All Expenses).
 - **LangGraph Checkpoint Inspector:** Real-time visibility into pending nodes and thread checkpoint records.
 - **Live Blackboard State & FIPA-ACL Logs:** Full transcript of agent-to-agent communication.
